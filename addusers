@@ -1,0 +1,49 @@
+#!/bin/bash
+read -p "Enter name : " name
+read -p "Enter surname : " surname
+fl=${name:0:1}
+loginn=$fl$surname
+password=$loginn
+for i in {0..99..1}
+do
+egrep "^$loginn" /etc/passwd > /dev/null
+	if [ $? -eq 0 ]; then
+		loginn=$fl$surname$i
+		echo "Login z liczba $i na koncu zajety, sprawdzanie kolejnej mozliwosci..."
+	else
+		useradd -m -g users -d /home/"$loginn" -s /bin/bash -p $(echo "$password" | openssl passwd -1 -stdin) "$loginn"
+		private=/home/$loginn/public_html/private_html
+		sudo touch $private/.htaccess
+		echo "AuthType Basic" | sudo tee -a $private/.htaccess
+		echo "AuthName \"Password Protected Area\"" | sudo tee -a $private/.htaccess
+		echo "AuthUserFile /home/$loginn/.htpasswd" | sudo tee -a $private/.htaccess
+		echo "Require valid-user" | sudo tee -a $private/.htaccess
+		sudo htpasswd -cb /home/$loginn/.htpasswd $loginn $loginn
+		if [ $? -eq 0 ]; then
+			sudo smbpasswd -a $loginn 
+			 echo "User has been added to system"
+			 usermod -a -G mail $loginn
+			 passwd -e $loginn
+			break
+		else
+			read -p "Enter login : " loginn
+	        useradd -m -g users -d /home/"$loginn" -s /bin/bash -p $(echo "$password" | openssl passwd -1 -stdin) "$loginn"
+		private=/home/$loginn/public_html/private_html
+                sudo touch $private/.htaccess
+                echo "AuthType Basic" | sudo tee -a $private/.htaccess
+                echo "AuthName \"Password Protected Area\"" | sudo tee -a $private/.htaccess
+                echo "AuthUserFile /home/$loginn/.htpasswd" | sudo tee -a $private/.htaccess
+                echo "Require valid-user" | sudo tee -a $private/.htaccess
+                sudo htpasswd -cb /home/$loginn/.htpasswd $loginn $loginn
+		sudo smbpasswd -a $loginn
+		usermod -a -G mail $loginn
+		passwd -e $loginn
+			break
+		fi
+	fi
+
+
+
+done
+echo "$password" > /home/"$loginn"/public_html/private_html/password
+

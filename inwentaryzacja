@@ -1,0 +1,10 @@
+#!/bin/bash
+DATE=$(date +"%Y.%m.%d.%H:%M")
+mkdir $DATE
+cd $DATE
+sed 's/:.*//'  /etc/passwd >> passwd
+cat /etc/group >> group
+sudo  iptables -L >> firewall
+netstat -apnt >> uslugi
+
+

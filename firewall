@@ -1,0 +1,66 @@
+#!/bin/bash
+ 
+# czyścimy wszystko
+iptables -F
+iptables -X
+iptables -F -t nat
+iptables -X -t nat
+iptables -F -t filter
+iptables -X -t filter
+ 
+if [ "$1" = "stop" ]
+then
+	iptables -P INPUT ACCEPT
+	iptables -P FORWARD ACCEPT
+	iptables -P OUTPUT ACCEPT
+	exit
+fi
+ 
+# ustalamy domyślną politykę dla filtrów
+iptables -P INPUT DROP
+iptables -P FORWARD DROP
+iptables -P OUTPUT ACCEPT
+ 
+# pełny ruch na interfejsie lo (potrzebne do działania wielu lokalnych usług)
+iptables -A INPUT -i lo -j ACCEPT
+ 
+# odrzucamy ident
+iptables -A INPUT -p tcp --dport 113 -j REJECT --reject-with icmp-port-unreachable 
+ 
+# ochrona przed atakami
+iptables -A INPUT -p icmp --icmp-type echo-request -m limit --limit 1/s -j LOG --log-prefix "Ping: "
+iptables -A INPUT -p icmp --icmp-type echo-request -m limit --limit 1/s -j ACCEPT # Ping of death
+# iptables -A INPUT -p icmp --icmp-type echo-request -j REJECT --reject-with icmp-host-unreachable
+ 
+iptables -A INPUT -m conntrack --ctstate NEW -p tcp --tcp-flags SYN,RST,ACK,FIN,URG,PSH ACK -j LOG --log-prefix "ACK scan: "
+iptables -A INPUT -m conntrack --ctstate NEW -p tcp --tcp-flags SYN,RST,ACK,FIN,URG,PSH ACK -j DROP # Metoda ACK (nmap -sA)
+ 
+iptables -A INPUT -m conntrack --ctstate NEW -p tcp --tcp-flags SYN,RST,ACK,FIN,URG,PSH FIN -j LOG --log-prefix "FIN scan: "
+iptables -A INPUT -m conntrack --ctstate NEW -p tcp --tcp-flags SYN,RST,ACK,FIN,URG,PSH FIN -j DROP # Skanowanie FIN (nmap -sF)
+ 
+iptables -A INPUT -m conntrack --ctstate NEW -p tcp --tcp-flags SYN,RST,ACK,FIN,URG,PSH PSH -j LOG --log-prefix "Xmas scan: "
+iptables -A INPUT -m conntrack --ctstate NEW -p tcp --tcp-flags SYN,RST,ACK,FIN,URG,PSH FIN,URG,PSH -j DROP # Metoda Xmas Tree (nmap -sX)
+ 
+iptables -A INPUT -m conntrack --ctstate INVALID -p tcp ! --tcp-flags SYN,RST,ACK,FIN,PSH,URG SYN,RST,ACK,FIN,PSH,URG -j LOG --log-prefix "Null scan: "
+iptables -A INPUT -m conntrack --ctstate INVALID -p tcp ! --tcp-flags SYN,RST,ACK,FIN,PSH,URG SYN,RST,ACK,FIN,PSH,URG -j DROP # Skanowanie Null (nmap -sN)
+ 
+# Łańcuch syn-flood (obrona przed DoS)
+iptables -N syn-flood
+iptables -A INPUT -p tcp --syn -j syn-flood
+iptables -A syn-flood -m limit --limit 1/s --limit-burst 4 -j RETURN
+iptables -A syn-flood -m limit --limit 1/s --limit-burst 4 -j LOG --log-prefix "SYN-flood: "
+iptables -A syn-flood -j DROP
+ 
+# pozwalamy na wszystkie istniejące już połączenia oraz połączenia które są powiązane z istniejącymi już połączeniami
+iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+ 
+# cały ruch powyżej portów 1024, to są porty które mogą być bindowane przez wszystko (chociażby np. Kadu)
+iptables -A INPUT -m state --state NEW -p tcp --dport 1024:65535 -j ACCEPT
+iptables -A INPUT -m state --state NEW -p udp --dport 1024:65535 -j ACCEPT
+ 
+# uruchomione serwery na portach poniżej 1024: ssh, http, https
+iptables -A INPUT -m state --state NEW -m multiport -p tcp --dports 21,22,25,80,110,143,53,443 -j ACCEPT
+ 
+# Samba
+iptables -A INPUT -m state --state NEW -m multiport -p udp --dports 137,138 --source 192.168.1.0/24 -j ACCEPT
+iptables -A INPUT -m state --state NEW -m multiport -p tcp --dports 139,445 --source 192.168.1.0/24 -j ACCEPT
